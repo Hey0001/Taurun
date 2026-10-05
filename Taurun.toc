@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: Taurun  \^(o o)^/
+## Notes: Custom audio feedback for Tauren Plainsrunning. /taurun
+## Author: Hey0001, AI
+## Version: 1.0
+## SavedVariables: TaurunDB
+## IconTexture: Interface\Icons\achievement_zone_barrens_01
+
+Taurun.lua
