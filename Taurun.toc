@@ -1,9 +1,18 @@
 ## Interface: 16001
+
 ## Title: Taurun  \^(o o)^/
-## Notes: Custom audio feedback for Tauren Plainsrunning. /taurun
 ## Author: Hey0001, AI
-## Version: 1.0
-## SavedVariables: TaurunDB
+## Version: 1.0.4
+
+## Notes: Custom audio feedback for Tauren Plainsrunning. /taurun
+## Notes-deDE: Benutzerdefiniertes Audio-Feedback für das Ebenenlaufen der Tauren. /taurun
+## Notes-esES: Efectos de sonido personalizados para Correr planicies de los Tauren. /taurun
+## Notes-esMX: Efectos de sonido personalizados para Correr planicies de los Tauren. /taurun
+## Notes-ptBR: Efeitos sonoros personalizados para Vencer Planícies dos Taurens. /taurun
+## Notes-frFR: Effets sonores personnalisés pour la Course dans les plaines des Taurens. /taurun
+
 ## IconTexture: Interface\Icons\achievement_zone_barrens_01
+
+## SavedVariables: TaurunDB
 
 Taurun.lua

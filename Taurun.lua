@@ -1,3 +1,5 @@
+if select(2, UnitRace("player")) ~= "Tauren" then return end
+
 local addonName = ...
 
 local BUFF_SPELL_ID = 1299038 
@@ -6,14 +8,18 @@ local TAUREN_RACE_ID = 6
 local activeSoundHandle = nil 
 local currentTier = 0         
 local maxStacks = 0           
+local maxIntroSoundPlayed = 0 -- Tracks the highest 1-8 sound played so they don't repeat unnecessarily
 local thirtyStackStartTime = nil 
-local thirtyStackTotalTime = 0 -- Accumulated or frozen time spent at 30 stacks
-local thirtyStackCurrentSessionTime = 0 -- Temps passé à 30 stacks pour la session en cours
+local thirtyStackTotalTime = 0 
+local thirtyStackCurrentSessionTime = 0 
+local thirtyStackSessionCount = 0 
+local runCompleted = false
+local startedFromZero = true 
 
 local totalDuration = 0
 local sessionStartTime = nil
 
-TaurunDB = TaurunDB or { addonEnabled = true, thirtyStackTotalTime = 0 }
+TaurunDB = TaurunDB or { addonEnabled = true, thirtyStackTotalTime = 0, thirtyStackCount = 0 }
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
@@ -32,30 +38,35 @@ local function StopAllTaurunSounds()
     end
 end
 
--- Full reset of the addon state (via /taurun off or /taurun reset)
-local function ResetAddonState()
+-- Complete reset of the addon (via /taurun reset)
+local function FullResetAddon()
     StopAllTaurunSounds()
     currentTier = 0
     maxStacks = 0
-    if thirtyStackStartTime then
-        local elapsed = GetTime() - thirtyStackStartTime
-        thirtyStackTotalTime = thirtyStackTotalTime + elapsed
-        thirtyStackCurrentSessionTime = thirtyStackCurrentSessionTime + elapsed
-        thirtyStackStartTime = nil
-        TaurunDB.thirtyStackTotalTime = thirtyStackTotalTime
-    end
+    maxIntroSoundPlayed = 0 -- Reset intro sounds tracking
     totalDuration = 0
     sessionStartTime = nil
     thirtyStackCurrentSessionTime = 0
+    thirtyStackSessionCount = 0
+    thirtyStackTotalTime = 0
+    thirtyStackStartTime = nil
+    runCompleted = false
+    startedFromZero = true
+
+    TaurunDB.addonEnabled = true
+    TaurunDB.thirtyStackTotalTime = 0
+    TaurunDB.thirtyStackCount = 0
 end
 
 local function PlaySoundFileSafely(soundFile, stopPrevious)
     if stopPrevious then
         StopAllTaurunSounds()
-    end
-    local played, handle = PlaySoundFile(soundFile, "Master")
-    if played and handle then
-        activeSoundHandle = handle
+        local played, handle = PlaySoundFile(soundFile, "Master")
+        if played and handle then
+            activeSoundHandle = handle
+        end
+    else
+        PlaySoundFile(soundFile, "Master")
     end
 end
 
@@ -75,62 +86,42 @@ SLASH_TAURUN1 = "/taurun"
 SlashCmdList["TAURUN"] = function(msg)
     msg = string.lower(string.trim(msg or ""))
     
-    if msg == "on" then
+    if msg == "on" or msg == "music on" then
         TaurunDB.addonEnabled = true
+        maxIntroSoundPlayed = 0 -- Fresh start for 1-8 sounds when manually turned back on
         PlaySoundFileSafely("Interface\\AddOns\\Taurun\\sounds\\Moo.mp3", false)
         print("|cFF00FF00[Taurun]|r Taurun music ON")
-    elseif msg == "off" then
-        if sessionStartTime then
-            totalDuration = totalDuration + (GetTime() - sessionStartTime)
-            sessionStartTime = nil
-        end
-        -- If turning off while at 30 stacks, freeze the current 30-stack timer chunk
-        if thirtyStackStartTime then
-            local elapsed = GetTime() - thirtyStackStartTime
-            thirtyStackTotalTime = thirtyStackTotalTime + elapsed
-            thirtyStackCurrentSessionTime = thirtyStackCurrentSessionTime + elapsed
-            thirtyStackStartTime = nil
-        end
-        ResetAddonState()
+    elseif msg == "off" or msg == "music off" then
+        StopAllTaurunSounds()
         TaurunDB.addonEnabled = false
         print("|cFFFF0000[Taurun]|r Taurun music OFF")
-    elseif msg == "reset" then
-        ResetAddonState()
-        TaurunDB.addonEnabled = true
-        print("|cFF00FF00[Taurun]|r Taurun reset : sounds ON, max stacks 0, current duration 0")
-    elseif msg == "duration reset" then
-        thirtyStackTotalTime = 0
-        thirtyStackCurrentSessionTime = 0
-        thirtyStackStartTime = nil
-        TaurunDB.thirtyStackTotalTime = 0
-        print("|cFF00FF00[Taurun]|r 30-stack total duration has been reset.")
+    elseif msg == "reset" or msg == "default" then
+        FullResetAddon()
+        print("|cFF00FF00[Taurun]|r Default: music ON, stack count/duration reset")
     elseif msg == "moo" then
         PlaySoundFileSafely("Interface\\AddOns\\Taurun\\sounds\\Moo.mp3", false)
         DoEmote("MOO")
         print("|cFF00FF00\\__     ```    __/")
-        print("|cFF00FF00     \\^(o o)^/|r        |cFF00FF00Moo!|r")
+        print("|cFF00FF00     \\^(o o)^/|r         |cFF00FF00Moo!|r")
     elseif msg == "info" or msg == "status" then
-        -- Calculate active 30-stack current session duration (running + accumulated in session)
         local current30Running = 0
         if thirtyStackStartTime then
             current30Running = GetTime() - thirtyStackStartTime
         end
         local final30Current = thirtyStackCurrentSessionTime + current30Running
-
-        -- Calculate active 30-stack total duration (running + persistent total)
         local final30Total = thirtyStackTotalTime + current30Running
         
         print("|cFFFFD100~~ \\ ^(o o)^ / ~~ [Taurun Info] ~~ \\ ^(o o)^ / ~~|r")
-        print("  Music (incoming): " .. (TaurunDB.addonEnabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r"))
-        print("  Max Stacks: " .. maxStacks)
-        print("  30-Stack Current Duration: " .. FormatTime(final30Current))
-        print("  30-Stack Total Duration: " .. FormatTime(final30Total))
+        print("  Session - Full-Stack Count (0->30): " .. thirtyStackSessionCount)
+        print("  Session - 30-Stack Duration: " .. FormatTime(final30Current))
+        print("~")
+        print("  Total - Full-Stack Count (0->30): " .. (TaurunDB.thirtyStackCount or 0))
+        print("  Total - 30-Stack Duration: " .. FormatTime(final30Total))
     else
         print("|cFFFFD100~~ \\ ^(o o)^ / ~~ [Taurun Commands] ~~ \\ ^(o o)^ / ~~|r")
-        print("  |cFF00FFFF/taurun info|r - Taurun info : music, max stacks, max duration")
-		print("  |cFF00FFFF/taurun on/off|r - Taurun music ON/OFF")
-		print("  |cFF00FFFF/taurun reset|r - Reset : music ON, max stacks, current max duration")
-        print("  |cFF00FFFF/taurun duration reset|r - Reset : total max duration")
+        print("  |cFF00FFFF/taurun info|r - Full-stack count, 30-stack duration")
+        print("  |cFF00FFFF/taurun on/off|r - Incoming music: " .. (TaurunDB.addonEnabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r"))
+        print("  |cFF00FFFF/taurun reset|r - Default (music ON, stack count/duration reset)")
         print("  |cFF00FFFF/taurun moo|r - Moo.")
     end
 end
@@ -143,8 +134,9 @@ f:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "PLAYER_LOGIN" then
         if TaurunDB.addonEnabled == nil then TaurunDB.addonEnabled = true end
         if TaurunDB.thirtyStackTotalTime then
-           thirtyStackTotalTime = TaurunDB.thirtyStackTotalTime
+            thirtyStackTotalTime = TaurunDB.thirtyStackTotalTime
         end
+        TaurunDB.thirtyStackCount = TaurunDB.thirtyStackCount or 0
     elseif event == "UNIT_AURA" and arg1 == "player" then
         if not IsPlayerTauren() then return end
         
@@ -161,8 +153,10 @@ f:SetScript("OnEvent", function(self, event, arg1)
             sessionStartTime = GetTime()
         end
         
-        -- If stacks drop to 0: complete reset of stats, max stacks, and 30-stack timer
+        -- If stacks drop to 0
         if stacks == 0 then
+            startedFromZero = true
+
             if sessionStartTime then
                 totalDuration = totalDuration + (GetTime() - sessionStartTime)
                 sessionStartTime = nil
@@ -176,15 +170,24 @@ f:SetScript("OnEvent", function(self, event, arg1)
                 TaurunDB.thirtyStackTotalTime = thirtyStackTotalTime
             end
             
-            ResetAddonState()
+            StopAllTaurunSounds()
+            
+            if runCompleted then
+                TaurunDB.addonEnabled = false
+            end
+            
+            maxStacks = 0
+            currentTier = 0
+            runCompleted = false
             return
         end
         
-        if stacks > maxStacks then
-            maxStacks = stacks
+        if not runCompleted and currentTier < 30 then
+            if stacks > maxStacks then
+                maxStacks = stacks
+            end
         end
         
-        -- Manage 30-stack timer based on exact positioning
         if stacks < 30 then
             if thirtyStackStartTime then
                 local elapsed = GetTime() - thirtyStackStartTime
@@ -195,45 +198,51 @@ f:SetScript("OnEvent", function(self, event, arg1)
             end
         end
         
+        -- Sound OFF < 9 stacks (drops tier so it can trigger 9 again)
         if stacks < 9 and currentTier >= 9 then
-            if sessionStartTime then
-                totalDuration = totalDuration + (GetTime() - sessionStartTime)
-                sessionStartTime = nil
-            end
-            ResetAddonState()
+            StopAllTaurunSounds()
             currentTier = stacks
-            return
         end
         
         if stacks == 30 then
-            -- Start the 30-stack timer only if we just entered it
+            if startedFromZero then
+                TaurunDB.thirtyStackCount = (TaurunDB.thirtyStackCount or 0) + 1
+                thirtyStackSessionCount = thirtyStackSessionCount + 1
+                startedFromZero = false
+            end
+
             if not thirtyStackStartTime then
                 thirtyStackStartTime = GetTime()
             end
             
             if currentTier < 30 then
                 currentTier = 30
-                TaurunDB.addonEnabled = false -- Automatic disable at 30 stacks
+                runCompleted = true
                 print("|cFF00FF00\\__     ```    __/")
-                print("|cFF00FF00     \\^(o o)^/|r        |cFF00FF00Moo!|r")
+                print("|cFF00FF00     \\^(o o)^/|r         |cFF00FF00Moo!|r")
                 DoEmote("TRAIN")
                 PlaySoundFileSafely("Interface\\AddOns\\Taurun\\sounds\\Moo.mp3", false)
             end
         else
             if currentTier == 30 and stacks < 30 then
-                currentTier = 29 -- Reset the tier threshold below 30 to allow re-triggering later
+                currentTier = 29 
             end
 
             if TaurunDB.addonEnabled then
                 if stacks >= 9 and stacks < 30 then
+                    -- Replay cruising speed sound if reaching 9 again
                     if currentTier < 9 then
                         currentTier = 9
                         PlaySoundFileSafely("Interface\\AddOns\\Taurun\\sounds\\stack_9.mp3", true)
                     end
                 else
                     if stacks >= 1 and stacks <= 8 and stacks > currentTier then
-                        currentTier = stacks
-                        PlaySoundFileSafely(string.format("Interface\\AddOns\\Taurun\\sounds\\stack_%d.mp3", stacks), true)
+                        -- Only play 1-8 sounds if they haven't been heard yet this run
+                        if stacks > maxIntroSoundPlayed then
+                            maxIntroSoundPlayed = stacks
+                            PlaySoundFileSafely(string.format("Interface\\AddOns\\Taurun\\sounds\\stack_%d.mp3", stacks), true)
+                        end
+                        currentTier = stacks -- Update tier regardless of sound playing
                     end
                 end
             end
