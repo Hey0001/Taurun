@@ -2,7 +2,7 @@
 
 ## Title: Taurun  \^(o o)^/
 ## Author: Hey0001, AI
-## Version: 1.0.4
+## Version: 1.0.5
 
 ## Notes: Custom audio feedback for Tauren Plainsrunning. /taurun
 ## Notes-deDE: Benutzerdefiniertes Audio-Feedback für das Ebenenlaufen der Tauren. /taurun
