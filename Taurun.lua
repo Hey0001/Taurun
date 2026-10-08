@@ -19,7 +19,7 @@ local startedFromZero = true
 local totalDuration = 0
 local sessionStartTime = nil
 
-TaurunDB = TaurunDB or { addonEnabled = true, thirtyStackTotalTime = 0, thirtyStackCount = 0 }
+TaurunDB = TaurunDB or { addonEnabled = true, soundChannel = "Master", thirtyStackTotalTime = 0, thirtyStackCount = 0 }
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
@@ -38,12 +38,12 @@ local function StopAllTaurunSounds()
     end
 end
 
--- Complete reset of the addon (via /taurun reset)
+-- Reset the addon (via /taurun reset) : Sound ON + Stats=0
 local function FullResetAddon()
     StopAllTaurunSounds()
     currentTier = 0
     maxStacks = 0
-    maxIntroSoundPlayed = 0 -- Reset intro sounds tracking
+    maxIntroSoundPlayed = 0
     totalDuration = 0
     sessionStartTime = nil
     thirtyStackCurrentSessionTime = 0
@@ -59,14 +59,15 @@ local function FullResetAddon()
 end
 
 local function PlaySoundFileSafely(soundFile, stopPrevious)
+    local channel = TaurunDB.soundChannel or "Master"
     if stopPrevious then
         StopAllTaurunSounds()
-        local played, handle = PlaySoundFile(soundFile, "Master")
+        local played, handle = PlaySoundFile(soundFile, channel)
         if played and handle then
             activeSoundHandle = handle
         end
     else
-        PlaySoundFile(soundFile, "Master")
+        PlaySoundFile(soundFile, channel)
     end
 end
 
@@ -88,13 +89,40 @@ SlashCmdList["TAURUN"] = function(msg)
     
     if msg == "on" or msg == "music on" then
         TaurunDB.addonEnabled = true
-        maxIntroSoundPlayed = 0 -- Fresh start for 1-8 sounds when manually turned back on
+        maxIntroSoundPlayed = 0
         PlaySoundFileSafely("Interface\\AddOns\\Taurun\\sounds\\Moo.mp3", false)
         print("|cFF00FF00[Taurun]|r Taurun music ON")
     elseif msg == "off" or msg == "music off" then
         StopAllTaurunSounds()
         TaurunDB.addonEnabled = false
         print("|cFFFF0000[Taurun]|r Taurun music OFF")
+    elseif msg:find("^channel") or msg:find("^canal") or msg:find("^volume") then
+    -- Capture any non-space text to support accented characters safely
+    local ch = msg:match("^channel%s+(%S+)") or msg:match("^canal%s+(%S+)") or msg:match("^volume%s+(%S+)")
+    
+    if ch then
+        -- Convert to lowercase and clean up potential accented characters (typo error)
+        ch = string.lower(ch)
+        ch = ch:gsub("é", "e"):gsub("è", "e"):gsub("ê", "e"):gsub("à", "a")
+    end
+
+    local validChannels = {
+        ambience = "Ambience",
+        ambiance = "Ambience",
+        master = "Master",
+        general = "Master",
+        sfx = "Effects",
+        effects = "Effects",
+        effect = "Effects"
+    }
+    
+    if ch and validChannels[ch] then
+        TaurunDB.soundChannel = validChannels[ch]
+        print("|cFF00FF00[Taurun]|r > Audio channel set to: |cFF00FFFF" .. validChannels[ch] .. "|r")
+    else
+        -- Default fallback channel is now Master
+        print("> Volume based on: |cFF00FFFF" .. (TaurunDB.soundChannel or "Master") .. "|r")
+    end
     elseif msg == "reset" or msg == "default" then
         FullResetAddon()
         print("|cFF00FF00[Taurun]|r Default: music ON, stack count/duration reset")
@@ -112,16 +140,17 @@ SlashCmdList["TAURUN"] = function(msg)
         local final30Total = thirtyStackTotalTime + current30Running
         
         print("|cFFFFD100~~ \\ ^(o o)^ / ~~ [Taurun Info] ~~ \\ ^(o o)^ / ~~|r")
-        print("  Session - Full-Stack Count (0->30): " .. thirtyStackSessionCount)
+        print("  Session - Full Stack Count (0->30): " .. thirtyStackSessionCount)
         print("  Session - 30-Stack Duration: " .. FormatTime(final30Current))
         print("~")
-        print("  Total - Full-Stack Count (0->30): " .. (TaurunDB.thirtyStackCount or 0))
+        print("  Total - Full Stack Count (0->30): " .. (TaurunDB.thirtyStackCount or 0))
         print("  Total - 30-Stack Duration: " .. FormatTime(final30Total))
     else
         print("|cFFFFD100~~ \\ ^(o o)^ / ~~ [Taurun Commands] ~~ \\ ^(o o)^ / ~~|r")
         print("  |cFF00FFFF/taurun info|r - Full-stack count, 30-stack duration")
         print("  |cFF00FFFF/taurun on/off|r - Incoming music: " .. (TaurunDB.addonEnabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r"))
-        print("  |cFF00FFFF/taurun reset|r - Default (music ON, stack count/duration reset)")
+		print("  |cFF00FFFF/taurun reset|r - Default (music ON, stack count/duration reset)")
+		print("  |cFF00FFFF/taurun volume master/sfx/ambience|r - Volume slider: |cFFFFD100" .. (TaurunDB.soundChannel or "Master") .. "|r")
         print("  |cFF00FFFF/taurun moo|r - Moo.")
     end
 end
@@ -133,6 +162,12 @@ f:SetScript("OnEvent", function(self, event, arg1)
         end
     elseif event == "PLAYER_LOGIN" then
         if TaurunDB.addonEnabled == nil then TaurunDB.addonEnabled = true end
+        
+        -- Restrict channel to authorized values only
+        if TaurunDB.soundChannel ~= "Ambience" and TaurunDB.soundChannel ~= "Master" and TaurunDB.soundChannel ~= "Sfx" then
+            TaurunDB.soundChannel = "Master"
+        end
+        
         if TaurunDB.thirtyStackTotalTime then
             thirtyStackTotalTime = TaurunDB.thirtyStackTotalTime
         end
